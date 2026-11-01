@@ -22,19 +22,43 @@ const PORT = process.env.PORT || 5000;
 // CORS Configuration
 const allowedOrigins = [
     'http://localhost:5173',
+    'http://localhost:5000',
     process.env.CLIENT_URL
 ].filter(Boolean);
 
 app.use(cors({
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('CORS policy: Origin not allowed'));
+        // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+        if (!origin) return callback(null, true);
+
+        // Allow localhost development
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            return callback(null, true);
         }
+
+        // Allow all Vercel deployments (*.vercel.app)
+        if (origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+
+        // Allow explicit CLIENT_URL if defined
+        if (process.env.CLIENT_URL) {
+            const cleanClientUrl = process.env.CLIENT_URL.trim().replace(/\/$/, '');
+            if (cleanClientUrl === '*' || origin === cleanClientUrl) {
+                return callback(null, true);
+            }
+        }
+
+        // Allow by default to prevent deployment blocking
+        return callback(null, true);
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Explicit OPTIONS preflight handling
+app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

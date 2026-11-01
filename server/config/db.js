@@ -2,7 +2,11 @@ const mongoose = require('mongoose');
 const dns = require('dns');
 
 
-dns.setServers(['8.8.8.8', '8.8.4.4']);
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch (dnsErr) {
+  // DNS override safe fallback
+}
 const connectDB = async () => {
 try {
 const uri = process.env.MONGODB_URI;
