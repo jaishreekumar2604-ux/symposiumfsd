@@ -1,9 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+const fs = require('fs');
+const mongoose = require('mongoose');
+
+require('dotenv').config({
+    path: path.resolve(__dirname, '../.env')
+});
 
 const connectDB = require('./config/db');
+
 const authRoutes = require('./routes/authRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const registrationRoutes = require('./routes/registrationRoutes');
@@ -11,94 +17,140 @@ const registrationRoutes = require('./routes/registrationRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());
+// ================= MIDDLEWARE =================
+
+// CORS Configuration
+const allowedOrigins = [
+    'http://localhost:5173',
+    process.env.CLIENT_URL
+].filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('CORS policy: Origin not allowed'));
+        }
+    },
+    credentials: true
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Connect to MongoDB
-connectDB();
+// ================= DATABASE CONNECTION =================
 
-// API Routes
+// ================= API ROUTES =================
+
 app.use('/api/auth', authRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/registrations', registrationRoutes);
 
-// Health check / API status route
+// ================= HEALTH CHECK =================
+
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'online',
-    project: 'Symposium Management & Workshop Registration System',
-    author: 'Jaishree K',
-    timestamp: new Date().toISOString(),
-    database: 'MongoDB Compass (mongodb://127.0.0.1:27017/symposium_portal)',
-  });
+
+    res.status(200).json({
+        success: true,
+        status: 'online',
+
+        project: 'SYMPORA - Symposium & Workshop Registration System',
+
+        author: 'Jaishree K',
+
+        database: {
+            type: 'MongoDB Atlas',
+            status: mongoose.connection.readyState === 1
+                ? 'Connected'
+                : 'Disconnected',
+            name: mongoose.connection.name || 'Not Connected'
+        },
+
+        timestamp: new Date().toISOString()
+    });
+
 });
 
-// Serve frontend static build if it exists (Single Localhost Mode)
+// ================= FRONTEND STATIC FILES =================
+
 const clientDistPath = path.join(__dirname, '../client/dist');
-const fs = require('fs');
 
 if (fs.existsSync(clientDistPath)) {
-  console.log(`\x1b[32m%s\x1b[0m`, `✓ Serving React client in Single Localhost Mode from ${clientDistPath}`);
-  app.use(express.static(clientDistPath));
 
-  app.get('*', (req, res) => {
-    // Exclude API routes
-    if (req.originalUrl.startsWith('/api')) {
-      return res.status(404).json({ success: false, message: 'API endpoint not found' });
-    }
-    res.sendFile(path.join(clientDistPath, 'index.html'));
-  });
-} else {
-  // If frontend hasn't been built yet, provide informative landing page on http://localhost:5000
-  app.get('/', (req, res) => {
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>SYMPORA Server - Single Localhost</title>
-        <style>
-          body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px; text-align: center; }
-          .card { max-width: 650px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px; border: 1px solid #334155; }
-          h1 { color: #818cf8; margin-bottom: 8px; }
-          .badge { display: inline-block; background: #4f46e5; color: white; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 14px; }
-          .btn { display: inline-block; background: #6366f1; color: white; padding: 10px 22px; border-radius: 8px; text-decoration: none; margin-top: 15px; font-weight: 600; }
-          code { background: #0f172a; padding: 3px 8px; border-radius: 6px; color: #38bdf8; }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <div class="badge">Created by Jaishree K</div>
-          <h1>SYMPORA API Server Online</h1>
-          <p>Symposium Management & Workshop Registration System</p>
-          <p>To run with the complete UI on this single localhost port:</p>
-          <p><code>npm run build</code> then refresh this page!</p>
-          <a class="btn" href="/api/health">Check API Health</a>
-        </div>
-      </body>
-      </html>
-    `);
-  });
+    console.log('React frontend build found.');
+
+    app.use(express.static(clientDistPath));
+
+    app.get('*', (req, res, next) => {
+
+        if (req.originalUrl.startsWith('/api')) {
+            return next();
+        }
+
+        res.sendFile(path.join(clientDistPath, 'index.html'));
+
+    });
+
 }
 
-// Global Error Handler
-app.use((err, req, res, next) => {
-  console.error('Unhandled server error:', err.stack);
-  res.status(500).json({
-    success: false,
-    message: 'Internal server error occurred',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  });
+// ================= API NOT FOUND =================
+
+app.use('/api', (req, res) => {
+
+    res.status(404).json({
+        success: false,
+        message: 'API endpoint not found'
+    });
+
 });
 
-app.listen(PORT, () => {
-  console.log(`\n\x1b[35m========================================================================\x1b[0m`);
-  console.log(`\x1b[1m\x1b[36m  🚀 SYMPORA - Symposium & Workshop Registration Portal\x1b[0m`);
-  console.log(`\x1b[33m  Project Owner: Jaishree K\x1b[0m`);
-  console.log(`\x1b[35m========================================================================\x1b[0m`);
-  console.log(`  🌐 Single Localhost URL: \x1b[32mhttp://localhost:${PORT}\x1b[0m`);
-  console.log(`  📊 API Health Check:     \x1b[34mhttp://localhost:${PORT}/api/health\x1b[0m`);
-  console.log(`  🗄️  MongoDB Compass URI:  \x1b[36mmongodb://127.0.0.1:27017/symposium_portal\x1b[0m`);
-  console.log(`\x1b[35m========================================================================\x1b[0m\n`);
+// ================= GLOBAL ERROR HANDLER =================
+
+app.use((err, req, res, next) => {
+
+    console.error('Server Error:', err.message);
+
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development'
+            ? err.message
+            : undefined
+    });
+
 });
+
+// ================= START SERVER =================
+
+const startServer = async () => {
+
+    try {
+
+        console.log('Connecting to MongoDB Atlas...');
+
+        await connectDB();
+
+        app.listen(PORT, () => {
+
+            console.log('======================================');
+            console.log('SYMPORA SERVER STARTED');
+            console.log('Project Owner: Jaishree K');
+            console.log(`Port: ${PORT}`);
+            console.log(`API Health: /api/health`);
+            console.log('MongoDB connection successful');
+            console.log('======================================');
+
+        });
+
+    } catch (error) {
+
+        console.error('MongoDB Connection Failed:', error.message);
+
+        process.exit(1);
+
+    }
+
+};
+
+startServer();
