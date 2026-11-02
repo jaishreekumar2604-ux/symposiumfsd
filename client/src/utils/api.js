@@ -1,12 +1,25 @@
 // API helper wrapper for SYMPORA
 // Resolves the API base URL:
-// 1. If VITE_API_URL or VITE_BACKEND_URL is set in environment (e.g. "https://symposiumfsd.onrender.com"), use it.
-// 2. Otherwise default to '/api' (handled by Vite proxy locally or Vercel rewrites in production).
+// 1. If VITE_API_URL is set in environment, use it.
+// 2. If running locally (localhost / 127.0.0.1), use '/api' (Vite proxy).
+// 3. In production (e.g. Vercel), default directly to live Render backend: 'https://symposiumfsd.onrender.com/api'
 const getBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
-  if (!envUrl) return '/api';
-  const clean = envUrl.trim().replace(/\/$/, '');
-  return clean.endsWith('/api') ? clean : `${clean}/api`;
+  if (envUrl) {
+    const clean = envUrl.trim().replace(/\/$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+
+  // Local development check
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return '/api';
+  }
+
+  // Production fallback directly to Render backend URL
+  return 'https://symposiumfsd.onrender.com/api';
 };
 
 const BASE_URL = getBaseUrl();
@@ -40,7 +53,7 @@ export const api = async (endpoint, { method = 'GET', body, headers = {}, isDown
   } catch (networkErr) {
     console.error('Network/fetch error connecting to:', url, networkErr);
     throw new Error(
-      'Unable to connect to backend server. If Render backend was sleeping, please wait 30 seconds and try again.'
+      'Unable to connect to backend server. If Render backend was sleeping (free tier), please wait 30 seconds and try again.'
     );
   }
 
@@ -51,30 +64,34 @@ export const api = async (endpoint, { method = 'GET', body, headers = {}, isDown
     return response.blob();
   }
 
-  // Safely parse JSON or text response to avoid "Unexpected end of JSON input" on 405/502/503 errors
+  // Safely read response text first to completely prevent "Unexpected end of JSON input"
   let data;
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    try {
-      data = await response.json();
-    } catch (parseError) {
-      data = { message: 'Invalid JSON response from server' };
+  try {
+    const rawText = await response.text();
+    if (!rawText || rawText.trim() === '') {
+      data = {
+        message: response.ok
+          ? 'Success'
+          : `Server returned HTTP ${response.status}. The backend might still be starting up on Render. Please retry in a few seconds.`
+      };
+    } else {
+      try {
+        data = JSON.parse(rawText);
+      } catch (jsonParseErr) {
+        data = { message: rawText };
+      }
     }
-  } else {
-    try {
-      const text = await response.text();
-      data = { message: text || `Server returned status ${response.status}` };
-    } catch (textError) {
-      data = { message: `Request failed with status ${response.status}` };
-    }
+  } catch (readErr) {
+    data = {
+      message: `Failed to read server response (HTTP ${response.status}). Please retry in a few seconds.`
+    };
   }
 
   if (!response.ok) {
     const errorMsg =
       (data && data.message) ||
       (response.status === 405
-        ? '405 Method Not Allowed: Check API URL and Vercel rewrite configuration.'
+        ? '405 Method Not Allowed: The request was sent to a static host. Please refresh the page.'
         : `Request failed with status ${response.status}`);
     throw new Error(errorMsg);
   }
