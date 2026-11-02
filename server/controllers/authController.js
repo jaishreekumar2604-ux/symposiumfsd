@@ -135,11 +135,28 @@ const loginUser = async (req, res) => {
     const emailLower = email.toLowerCase().trim();
 
     if (mongoose.connection.readyState === 1) {
-      const user = await User.findOne({ email: emailLower }).select('+password');
+      let user = await User.findOne({ email: emailLower }).select('+password');
+
+      // Auto-provision default demo accounts on-the-fly if they do not exist yet in MongoDB Atlas
+      if (!user && (emailLower === 'jaishree@sympora.edu' || emailLower === 'rahul@student.edu')) {
+        const isDefaultAdmin = emailLower === 'jaishree@sympora.edu';
+        user = await User.create({
+          name: isDefaultAdmin ? 'Jaishree K' : 'Rahul Sharma',
+          email: emailLower,
+          password: isDefaultAdmin ? 'Admin@123' : 'User@123',
+          role: isDefaultAdmin ? 'admin' : 'student',
+          department: 'Computer Science and Engineering',
+          college: 'College of Engineering & Technology',
+          rollNumber: isDefaultAdmin ? '26CSE001' : '26CSE045',
+          phone: isDefaultAdmin ? '+91 98765 43210' : '+91 98111 22334',
+        });
+        user = await User.findById(user._id).select('+password');
+      }
+
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'Invalid credentials: User not found',
+          message: 'Invalid credentials: User not found. Please click Register to create a new account.',
         });
       }
 
